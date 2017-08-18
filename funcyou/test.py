@@ -16,6 +16,8 @@ class Test(unittest.TestCase):
         at((0  <=  _)(0))
         at((0  ==  _)(0))
         at((_  ==  0)(0))
+        at((1  !=  _)(0))
+        at((_  !=  1)(0))
 
         ae = self.assertEqual
 

@@ -39,19 +39,36 @@ def fswap(f):
     'Given f(a,b) returns f(b,a)'
     return lambda a,b: f(b,a)
 
-def operator_fcty(op, other, swap=False):
+class _Lambda(object):
+
+    def __init__(self, partial_, swap, symb):
+        self.partial = partial_
+        self.swap = swap
+        self.symb = symb
+
+    def __call__(self, *args, **kwargs):
+        return self.partial(*args, **kwargs)
+
+    def __repr__(self):
+        repr_ = '({} {} {})'.format(
+                        repr(self.partial.args[0]) if not self.swap else '_',
+                        self.symb,
+                        repr(self.partial.args[0]) if self.swap else '_')
+        return repr_ 
+
+def operator_fcty(op, other, swap=False, symb='?'):
     'Operator factory'
     op = fswap(op) if swap else op
-    return partial(op, other)
+    return _Lambda(partial(op, other), swap, symb)
 
 class Lambda(object):
     'Lambda expressions'
 
     def __le__(self, other):
-        return operator_fcty(o.le, other, True)
+        return operator_fcty(o.le, other, True, '<=')
 
     def __lt__(self, other):
-        return operator_fcty(o.lt, other, True)
+        return operator_fcty(o.lt, other, True, '<')
 
     def __gt__(self, other):
         return operator_fcty(o.gt, other, True)
@@ -74,6 +91,10 @@ class Lambda(object):
     def __eq__(self, other):
         return operator_fcty(o.eq, other)
     __req__ = __eq__
+
+    def __ne__(self, other):
+        return operator_fcty(o.ne, other)
+    __rne__ = __ne__
 
     def __mul__(self, other):
         return operator_fcty(o.mul, other)
@@ -100,5 +121,48 @@ class Lambda(object):
 
     def __truediv__(self, other):
         return operator_fcty(o.truediv, other, True)
+
+    def __mod__(self, other):
+        return operator_fcty(o.mod, other, True)
+
+    def __rmod__(self, other):
+        return operator_fcty(o.mod, other)
+
+    def __pow__(self, other):
+        return operator_fcty(o.pow, other, True)
+
+    def __rpow__(self, other):
+        return operator_fcty(o.pow, other)
+
+    def __and__(self, other):
+        return operator_fcty(o.pow, other, True)
+
+    def __rand__(self, other):
+        return operator_fcty(o.pow, other)
+
+    def __or__(self, other):
+        return operator_fcty(o.or_, other, True)
+
+    def __ror__(self, other):
+        return operator_fcty(o.or_, other)
+
+    def __xor__(self, other):
+        return operator_fcty(o.or_, other, True)
+
+    def __rxor__(self, other):
+        return operator_fcty(o.or_, other)
+
+    def __rshift__(self, other):
+        return operator_fcty(o.rshift, other, True)
+
+    def __rrshift__(self, other):
+        return operator_fcty(o.rshift, other)
+
+    def __lshift__(self, other):
+        return operator_fcty(o.lshift, other, True)
+
+    def __rlshift__(self, other):
+        return operator_fcty(o.lshift, other)
+
 
 LAMBDA = Lambda()
