@@ -1,6 +1,6 @@
 import unittest
 
-from . import LAMBDA as _
+from . import LAMBDA as _, Pipe
 
 class Test(unittest.TestCase):
     def test_lambda(self):
@@ -32,3 +32,8 @@ class Test(unittest.TestCase):
         ae((_ // 2)(5), 2)
         ae((5 /  _)(2), 2.5)
         ae((_ /  2)(5), 2.5)
+
+    def test_pipe(self):
+        from itertools import product
+        res = Pipe() | range(1,6) | product
+        self.assertTrue(res(), product(range(1,6)))

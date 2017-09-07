@@ -164,5 +164,48 @@ class Lambda(object):
     def __rlshift__(self, other):
         return operator_fcty(o.lshift, other)
 
-
 LAMBDA = Lambda()
+
+class Pipe(object):
+    ''' Pipe utility class.
+      
+        You can chain computaions in a shell like form. Ex.:
+
+        >>> from itertools import product
+        >>> from funcyou import Pipe
+        >>> # factorial of 5
+        >>> res = Pipe() | range(1,6) | product
+        >>> assert res() == 120
+        
+        `Pipe()` is a wrapping object impementing __or__ method. The
+        object value can be passed as sole argument as in `Pipe('foo')`.
+        Pipe object is a callable, when called it does return its value. So that:
+
+        >>> foo = Pipe('foo')
+        >>> foo() == 'foo'
+        True
+
+        The __or__ method tries to call the right opeator passing the current
+        value to it and return its result encapsuled in a Pipe object. If this
+        raises TypeError it returns the right size encapsuled in a Pipe.
+
+        >>> foo = Pipe() | 'foo'
+        >>> foo() == 'foo'
+        True
+        
+        With this behavior is expected that any amount of expressions can be
+        chained and the result can be retrived by calling the return callable.
+    ''' 
+
+    def __init__(self, value=None):
+        self.value = value
+
+    def __call__(self):
+        return self.value
+    
+    def __or__(self, other):
+        try:
+            return Pipe(other(self()))
+        except TypeError:
+            return Pipe(other)
+
