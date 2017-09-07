@@ -171,10 +171,10 @@ class Pipe(object):
       
         You can chain computaions in a shell like form. Ex.:
 
-        >>> from itertools import product
+        >>> from numpy import prod
         >>> from funcyou import Pipe
         >>> # factorial of 5
-        >>> res = Pipe() | range(1,6) | product
+        >>> res = Pipe() | range(1,6) | prod
         >>> assert res() == 120
         
         `Pipe()` is a wrapping object impementing __or__ method. The
