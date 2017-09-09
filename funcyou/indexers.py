@@ -9,7 +9,7 @@ def column(mtx):
     '''
     class _column(object):
         def __getitem__(self, idx):
-            return [i[idx] for i in mtx]
+            return (i[idx] for i in mtx)
     return _column()
 
 def diag(mtx):
@@ -18,7 +18,7 @@ def diag(mtx):
     class _diag(object):
         def __getitem__(self, idx):
             l = len(mtx)
-            return [mtx[i][(i+idx)%l] for i in range(l)]
+            return (mtx[i][(i+idx)%l] for i in range(l))
     return _diag()
 
 def adiag(mtx):
@@ -27,7 +27,7 @@ def adiag(mtx):
     class _adiag(object):
         def __getitem__(self, idx):
             l = len(mtx)
-            return [mtx[i][(idx-i)%l] for i in range(l)]
+            return (mtx[i][(idx-i)%l] for i in range(l))
     return _rdiag()
 
 
