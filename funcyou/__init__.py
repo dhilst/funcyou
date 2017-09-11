@@ -39,6 +39,44 @@ def fswap(f):
     'Given f(a,b) returns f(b,a)'
     return lambda a,b: f(b,a)
 
+class Let:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+    def __setattr__(self, attr, val):
+        raise AttributeError("Can't assing values to Let")
+
+
+class Pipe:
+    def __init__(self, val):
+        self.val = val
+
+    def __call__(self):
+        return self.val
+
+    def __or__(self, other):
+        return Pipe(other(self.val))
+
+#a = Pipe([1,2,3,4]) | sum | (lambda x:x*x) | (lambda x:range(x)) | list
+#print(a())
+
+from functools import partial, reduce
+class Composition:
+    def __init__(self):
+        self.funcs = []
+
+    def __call__(self, *args, **kwargs):
+        # Refactor this
+        return reduce(lambda f, g: lambda *a, **k: f(g(*a,*k)), reversed(self.funcs))(*args, **kwargs)
+
+    def __or__(self, other):
+        self.funcs.append(other)
+        return self
+
+#f = Composition() | sum | (lambda x:x*x) | (lambda x:range(x)) | list
+#print(f([1,2,3,4]))
+
+
 class _Lambda(object):
 
     def __init__(self, partial_, swap, symb):
