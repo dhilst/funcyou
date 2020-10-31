@@ -9,20 +9,79 @@ from pyparsing import (  # type: ignore
     alphas,
     ParseResults,
     restOfLine,
+    dblQuotedString,
+    infixNotation,
+    oneOf,
+    opAssoc,
 )
 from collections import namedtuple
 from collections.abc import MutableMapping
+from abc import ABC, abstractmethod
 import operator as op
 
-# val foo = 10;
 
-Value = namedtuple("Value", "value type")
-Val = namedtuple("Val", "name expr type")
-Lookup = namedtuple("Lookup", "name type")
-Id = namedtuple("Id", "name type")
+class Node(ABC):
+    @abstractmethod
+    def __init__(self, tokens: ParseResults):
+        pass
+
+    def __repr__(self):
+        attrs = ", ".join(f"{k}={repr(v)}" for k, v in self.__dict__.items())
+        return f"{self.__class__.__name__}({attrs})"
+
+
+class _TypeUnknow:
+    pass
+
+
+TypeUnknow = _TypeUnknow
+
+
+class Identifier(Node):
+    def __init__(self, tokens: ParseResults):
+        self.name = tokens[0]
+
+
+class Expr(Node):
+    def __init__(self, tokens: ParseResults):
+        self.value = tokens.value
+        self.type = TypeUnknow
+
+
+class Val(Node):
+    def __init__(self, tokens: ParseResults):
+        self.name = tokens.name.name
+        self.expr = tokens.expr
+        self.type = TypeUnknow
+
+
+class Lookup(Node):
+    def __init__(self, tokens: ParseResults):
+        self.varname = tokens.varname
+        self.type = TypeUnknow
+
+
+class Constant(Node):
+    def __init__(self, tokens: ParseResults, type):
+        self.value = tokens.value
+        self.type = type
+
+
+class BinOp(Node):
+    def __init__(self, tokens: ParseResults):
+        self.type = TypeUnknow
+        self.op = tokens[0][1]
+        self.arg1 = tokens[0][0]
+        self.arg2 = tokens[0][2]
+
 
 # Type will be infered
 TypePlaceholder = namedtuple("TypePlaceholder", "id")
+
+
+class AST:
+    def __init__(self, tokens: ParseResults):
+        self.nodes = tokens
 
 
 class classproperty:
@@ -78,51 +137,59 @@ class ScopeEnv:
         return cls._scope.get(key)
 
 
-def push_to_env(v: Val) -> None:
-    ScopeEnv.push("global", v.name, v)
+# Parse actions
 
 
-def create_val_and_push_to_env(tokens: ParseResults) -> Val:
-    val = Val(name=tokens.name, expr=tokens.expr, type=tokens.expr.type)
-    push_to_env(val)
-    return val
+def BNF():
+    if hasattr(BNF, "_cache"):
+        return BNF._cache
+
+    expr = Forward()
+
+    INT = Word(nums)("value").setParseAction(lambda t: Constant(t, int))
+    STRING = dblQuotedString("value").setParseAction(lambda t: Constant(t, str))
+    constant = INT | STRING
+    ID = Word(alphas + "_").setParseAction(Identifier)
+
+    value = constant | ID
+
+    mulop = oneOf("* /")
+    plusop = oneOf("+ -")
+
+    # fmt: off
+    infix_expr = infixNotation(
+        value,
+        [
+            (mulop, 1, opAssoc.LEFT, lambda x: x),
+            (plusop, 2, opAssoc.LEFT, BinOp),
+        ]
+
+    )
+    # fmt: on
+
+    expr <<= value ^ infix_expr
+    val_expr = ("val" + ID("name") + "=" + expr("expr") + ";").setParseAction(Val)
+
+    statements = val_expr
+
+    module = statements[1, ...].ignore("#" + restOfLine)
+
+    BNF._cache = module
+    return module
 
 
-def lookup_val(tokens: ParseResults) -> Lookup:
-    val = ScopeEnv.lookup(tokens[0])
-    return Lookup(tokens[0], val.type if val is not None else None)
+def eval_ast(ast: AST):
+    from pprint import pprint
+
+    pprint(ast.nodes.asList())
 
 
-expr = Forward()
-
-INT = Word(nums).setParseAction(lambda tokens: Value(int(tokens[0]), int))
-ID = Word(alphas + "_")
-
-val_name = ID.setParseAction(lambda tokens: Id(tokens[0], None))
-val_value = ID.setParseAction(lookup_val)
-
-value = INT | val_value
-
-expr <<= value
-val_expr = ("val" + val_name("name") + "=" + expr("expr") + ";").setParseAction(
-    create_val_and_push_to_env
+BNF().runTests(
+    """
+    val foo = 10;
+    val bar = 20;
+    val zar = foo;
+    val a = 1 + 2;
+    val hello = "Hello"; 
+    """
 )
-statements = val_expr
-
-module = statements[1, ...].ignore("#" + restOfLine)
-
-
-##
-
-print(
-    module.parseString(
-        """
-            val foo = 10;
-            val bar = 20;
-            val zar = foo;
-        """,
-        True,
-    ).dump()
-)
-
-print(ScopeEnv.dump())
