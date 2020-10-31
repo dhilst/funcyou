@@ -117,6 +117,21 @@ class BinOp(Expr):
         self.arg2 = tokens[0][2]
 
 
+class IfExpr(Expr):
+    def __init__(self, tokens: ParseResults):
+        self.type = TypeUnknow
+        self.cond = tokens.ifcond
+        self.body = tokens.ifbody
+        self.elifs = tokens.elifs
+        self.elsebody = tokens.eslebody
+
+
+class FunCall(Expr):
+    def __init__(self, tokens: ParseResults):
+        self.type = TypeUnknow
+        self.name = tokens.name
+        self.args = tokens.args
+
 class Statement(Node):
     pass
 
@@ -128,7 +143,9 @@ class Val(Statement):
         self.type = TypeUnknow
 
     def eval(self):
-        pass
+        self.expr.eval()
+        self.type = self.expr.type
+        ScopeEnv.push("global", self.name, self.expr)
 
 
 class FuncDef(Statement):
@@ -137,14 +154,11 @@ class FuncDef(Statement):
         self.args = tokens.args
         self.body = tokens.body
 
+    def eval(self):
+        print("==========> FunDef statement eval", self);
 
-# Type will be infered
-TypePlaceholder = namedtuple("TypePlaceholder", "id")
-
-
-class AST:
-    def __init__(self, tokens: ParseResults):
-        self.nodes = tokens
+def eval_statement(self, tokens: ParseResults):
+    tokens.stmt[0].eval()
 
 
 def BNF():
@@ -156,8 +170,9 @@ def BNF():
     INT = Word(nums)("value").setParseAction(lambda t: Constant(t, int))
     STRING = dblQuotedString("value").setParseAction(lambda t: Constant(t, str))
     ID = Word(alphas + "_").setParseAction(Identifier)
+    BOOL = oneOf("true false")("value").setParseAction(lambda t: Constant(t, bool))
 
-    constant = INT | STRING
+    constant = INT | STRING | BOOL
     value = constant | ID
 
     mulop = oneOf("* /")
@@ -174,28 +189,38 @@ def BNF():
     )
     # fmt: on
 
-    expr <<= value ^ infix_expr
+    # Expressions
+    fun_call = (
+        ID("name") + "(" + delimitedList(expr)("args") + ")"
+    ).setParseAction(FunCall)
+
+    elif_snippet = "elif" + expr("elifcond") + "then" + expr("elifbody")
+    if_expr = (
+        "if" + expr("ifcond") + "then" +
+            expr("ifbody") +
+        elif_snippet("elifs")[...] +
+        "else" + expr("elsebody")  + 
+        "end"
+    ).setParseAction(IfExpr)
+
+    expr <<= fun_call ^ value ^ infix_expr ^ if_expr
 
     expr_list = delimitedList(expr, ";")
 
+    # Statements
     val_stmt = ("val" + ID("name") + "=" + expr("expr") + ";").setParseAction(Val)
 
     fun_stmt = (
-        "fun" + ID("name") + delimitedList(ID)("args") + "=" + expr_list("body") + ";"
+        "fun" + ID("name") + "(" + delimitedList(ID)("args") + ")" + "=" + expr_list("body") + ";"
     ).setParseAction(FuncDef)
 
-    statement = val_stmt ^ fun_stmt
+
+    statement = (val_stmt ^ fun_stmt)("stmt").setParseAction(eval_statement)
 
     module = statement[1, ...].ignore("#" + restOfLine)
 
     BNF._cache = module
     return module
-
-
-def eval_ast(ast: AST):
-    from pprint import pprint
-
-    pprint(ast.nodes.asList())
 
 
 BNF().runTests(
@@ -206,6 +231,12 @@ BNF().runTests(
     val a = 1 + 2;
     val hello = "Hello";
 
-    fun foo a, b = a + b; b + a;
+    fun foofunc(a, b) = a + b; b + a;
+
+    val foores = foofunc(1, 2);
+
+    val foo = if a then a + 1 elif b then b + 1 else c end;
+
+    val bar = if true then 1 else 0 end;
     """
 )
