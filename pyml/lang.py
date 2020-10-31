@@ -21,8 +21,12 @@ from abc import ABC, abstractmethod
 import operator as op
 
 
-from pyml.utils import classproperty
+class classproperty:
+    def __init__(self, getter):
+        self.getter = getter
 
+    def __get__(self, obj, klass):
+        return self.getter(klass)
 
 class ScopeEnv:
     """
@@ -191,7 +195,7 @@ def BNF():
 
     # Expressions
     fun_call = (
-        ID("name") + "(" + delimitedList(expr)("args") + ")"
+        ID("name") + expr("args")[...]
     ).setParseAction(FunCall)
 
     elif_snippet = "elif" + expr("elifcond") + "then" + expr("elifbody")
@@ -199,7 +203,7 @@ def BNF():
         "if" + expr("ifcond") + "then" +
             expr("ifbody") +
         elif_snippet("elifs")[...] +
-        "else" + expr("elsebody")  + 
+        "else" + expr("elsebody")  +
         "end"
     ).setParseAction(IfExpr)
 
@@ -211,7 +215,7 @@ def BNF():
     val_stmt = ("val" + ID("name") + "=" + expr("expr") + ";").setParseAction(Val)
 
     fun_stmt = (
-        "fun" + ID("name") + "(" + delimitedList(ID)("args") + ")" + "=" + expr_list("body") + ";"
+        "fun" + ID("name") + ID("args")[...] + "=" + expr("body") + ";"
     ).setParseAction(FuncDef)
 
 
@@ -231,9 +235,9 @@ BNF().runTests(
     val a = 1 + 2;
     val hello = "Hello";
 
-    fun foofunc(a, b) = a + b; b + a;
+    fun foofunc a b = a + b;
 
-    val foores = foofunc(1, 2);
+    val foores = foofunc 1 2;
 
     val foo = if a then a + 1 elif b then b + 1 else c end;
 
