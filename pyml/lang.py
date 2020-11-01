@@ -49,7 +49,7 @@ class ScopeEnv:
 
     # fmt: off
     _scope: Dict[str, Any] = {
-        "+": op.add,
+        "+": Value(op.add, op.add),
     }
     # fmt: on
 
@@ -86,10 +86,11 @@ class ScopeEnv:
     def lookup(cls, key) -> Optional[Any]:
         "Lookup a value from current scope"
         val = cls.current.get(key)
-        logger.debug("Looking up %s => %s", key, val)
+        logger.debug("looking up %s => %s in scope %s", key, val, cls.current)
         if val is not None:
             return val
         val = cls._scope.get(key)
+        logger.debug("looking up %s => %s in scope %s", key, val, cls._scope)
         if val is not None:
             return val
         return None
@@ -116,7 +117,7 @@ class Node(ABC):
 class Identifier(Node):
     def __init__(self, tokens: ParseResults):
         self.name = tokens[0]
-        self.value = None
+        self.value: Optional[Any] = None
 
     def eval(self):
         if self.value is not None:
@@ -134,13 +135,19 @@ class Expr(Node):
         self.value = Value(tokens.value)
 
     @abstractmethod
-    def eval(self, args) -> Value:
+    def eval(self) -> Value:
         pass
 
 
 class Constant(Expr):
     def __init__(self, tokens: ParseResults, type):
-        self.value = Value(tokens.value, type)
+        if type is int:
+            v = int(tokens.value)
+        elif type is bool:
+            v = tokens.value == "true"
+        else:
+            v = tokens.value
+        self.value = Value(v, type)
 
     def eval(self):
         return self.value
@@ -149,16 +156,32 @@ class Constant(Expr):
 class BinOp(Expr):
     def __init__(self, tokens: ParseResults):
         self.type = TypeUnknow
-        self.op = tokens[0][1]
+        self.op = Identifier(tokens[0][1][:])
         self.arg1 = tokens[0][0]
         self.arg2 = tokens[0][2]
+        self.value: Optional[Value] = None
 
-    def eval(self, args) -> Value:
-        return Value()  # type: ignore
+    def eval(self) -> Value:
+        if self.value is not None:
+            return self.value
+        logger.debug("evaluate BinOp %s %s %s", self.arg1, self.op, self.arg2)
+        self.op.eval()
+        self.arg1.eval()
+        self.arg2.eval()
+
+        if self.arg1.value.type != self.arg2.value.type:
+            raise TypeError("{self.arg1.type} != {self.arg2.type}")
+        if self.op.value is None:
+            raise LookupError("Can't find {self.op}")
+
+        logger.debug("op => %s", self.op.value.value)
+        value = self.op.value.value(self.arg1.value.value, self.arg2.value.value)
+        self.value = Value(value, self.arg1.value.type)  # type: ignore
+        return self.value
 
 
 class BoolOp(Expr):
-    def eval(self, args) -> Value:
+    def eval(self) -> Value:
         return Value(None, bool)
 
 
@@ -169,7 +192,7 @@ class IfExpr(Expr):
         self.body = tokens.ifbody
         self.elsebody = tokens.eslebody
 
-    def eval(self, args) -> Value:
+    def eval(self) -> Value:
         return Value(None, None)
 
 
