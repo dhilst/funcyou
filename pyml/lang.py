@@ -1,32 +1,46 @@
-from typing import *
+from typing import Dict, Any, NamedTuple, Optional, Callable
 from pprint import pprint, pformat
 from pyparsing import (  # type: ignore
-    Forward,
     Combine,
+    Forward,
+    Group,
+    Keyword,
+    ParseResults,
+    Literal,
     Word,
     alphanums,
-    nums,
     alphas,
-    ParseResults,
-    restOfLine,
     dblQuotedString,
+    delimitedList,
     infixNotation,
+    nums,
     oneOf,
     opAssoc,
-    delimitedList,
+    restOfLine,
 )
-from collections import namedtuple
 from collections.abc import MutableMapping
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 import operator as op
 
+from pyml.utils import logger, classproperty
 
-class classproperty:
-    def __init__(self, getter):
-        self.getter = getter
 
-    def __get__(self, obj, klass):
-        return self.getter(klass)
+class _TypeUnknow:
+    def __repr__(self):
+        return "any"
+
+
+TypeUnknow = _TypeUnknow()
+
+
+class Value:
+    def __init__(self, value: Any = None, type=TypeUnknow):
+        self.value = value
+        self.type: Any = type
+
+    def __repr__(self):
+        return f"{self.value}:{self.type.__name__}"
+
 
 class ScopeEnv:
     """
@@ -42,12 +56,14 @@ class ScopeEnv:
     _current = _scope
 
     @classmethod
-    def push(cls, scope: str, key: str, value: Any):
+    def push(cls, scope: str, key: str, value: Value):
+        "Push value to scope"
         cls._scope.setdefault(scope, {})[key] = value
         cls._current = cls._scope[scope]
 
     @classmethod
     def pop(cls, scope: str):
+        "Pop an scope"
         cls._current = cls._scope
 
     @classmethod
@@ -56,6 +72,7 @@ class ScopeEnv:
 
     @classproperty
     def current(cls):
+        "Return the current scope"
         return cls._current
 
     @classproperty
@@ -67,50 +84,66 @@ class ScopeEnv:
 
     @classmethod
     def lookup(cls, key) -> Optional[Any]:
+        "Lookup a value from current scope"
         val = cls.current.get(key)
+        logger.debug("Looking up %s => %s", key, val)
         if val is not None:
             return val
-        return cls._scope.get(key)
+        val = cls._scope.get(key)
+        if val is not None:
+            return val
+        return None
 
 
 class Node(ABC):
     @abstractmethod
     def __init__(self, tokens: ParseResults):
-        pass
+        self.expr: Optional[Node]
+        self.value: Optional[Value]
 
     def __repr__(self):
-        attrs = ", ".join(f"{k}={repr(v)}" for k, v in self.__dict__.items())
+        if self.value is not None:
+            attrs = ", ".join(
+                f"{k}={repr(v)}" for k, v in self.__dict__.items() if k != "expr"
+            )
+        else:
+            attrs = ", ".join(
+                f"{k}={repr(v)}" for k, v in self.__dict__.items() if k != "value"
+            )
         return f"{self.__class__.__name__}({attrs})"
-
-
-class _TypeUnknow:
-    pass
-
-
-TypeUnknow = _TypeUnknow
 
 
 class Identifier(Node):
     def __init__(self, tokens: ParseResults):
         self.name = tokens[0]
+        self.value = None
+
+    def eval(self):
+        if self.value is not None:
+            return self.value
+        val = ScopeEnv.lookup(self.name)
+        logger.debug(
+            "Identifier looked up %s => %s:%s", self.name, val.value, val.type.__name__
+        )
+        self.value = val
+        return self.value
 
 
 class Expr(Node):
     def __init__(self, tokens: ParseResults):
-        self.value = tokens.value
-        self.type = TypeUnknow
+        self.value = Value(tokens.value)
 
-
-class Lookup(Expr):
-    def __init__(self, tokens: ParseResults):
-        self.varname = tokens.varname
-        self.type = TypeUnknow
+    @abstractmethod
+    def eval(self, args) -> Value:
+        pass
 
 
 class Constant(Expr):
     def __init__(self, tokens: ParseResults, type):
-        self.value = tokens.value
-        self.type = type
+        self.value = Value(tokens.value, type)
+
+    def eval(self):
+        return self.value
 
 
 class BinOp(Expr):
@@ -120,21 +153,42 @@ class BinOp(Expr):
         self.arg1 = tokens[0][0]
         self.arg2 = tokens[0][2]
 
+    def eval(self, args) -> Value:
+        return Value()  # type: ignore
+
+
+class BoolOp(Expr):
+    def eval(self, args) -> Value:
+        return Value(None, bool)
+
 
 class IfExpr(Expr):
     def __init__(self, tokens: ParseResults):
         self.type = TypeUnknow
         self.cond = tokens.ifcond
         self.body = tokens.ifbody
-        self.elifs = tokens.elifs
         self.elsebody = tokens.eslebody
+
+    def eval(self, args) -> Value:
+        return Value(None, None)
+
+
+class Arguments(Node):
+    def __init__(self, tokens: ParseResults):
+        self.args = tokens.ungroup()
 
 
 class FunCall(Expr):
     def __init__(self, tokens: ParseResults):
         self.type = TypeUnknow
         self.name = tokens.name
-        self.args = tokens.args
+        self.args = tokens.args.args
+
+    def eval(self):
+        result = ScopeEnv.lookup(self.name).call(self.args)
+        self.type = result.type
+        return result
+
 
 class Statement(Node):
     pass
@@ -143,26 +197,33 @@ class Statement(Node):
 class Val(Statement):
     def __init__(self, tokens: ParseResults):
         self.name = tokens.name.name
-        self.expr = tokens.expr
-        self.type = TypeUnknow
+        self.value = None
+        self.expr: Expr = tokens.expr
 
     def eval(self):
+        if self.value is not None:
+            return self.value
         self.expr.eval()
-        self.type = self.expr.type
-        ScopeEnv.push("global", self.name, self.expr)
+        self.value = self.expr.value
+        logger.debug("Val evaluated: %s", self)
+        ScopeEnv.push("global", self.name, self.value)
 
 
 class FuncDef(Statement):
     def __init__(self, tokens: ParseResults):
         self.name = tokens.name
-        self.args = tokens.args
-        self.body = tokens.body
+        self.args: Arguments = tokens.args
+        self.body: Expr = tokens.body
 
     def eval(self):
-        print("==========> FunDef statement eval", self);
+        ScopeEnv.push("global", self.name, self)
+
+    def call(self, args):
+        self.body.eval(args)
+
 
 def eval_statement(self, tokens: ParseResults):
-    tokens.stmt[0].eval()
+    tokens[0].eval()
 
 
 def BNF():
@@ -176,52 +237,57 @@ def BNF():
     ID = Word(alphas + "_").setParseAction(Identifier)
     BOOL = oneOf("true false")("value").setParseAction(lambda t: Constant(t, bool))
 
+    IF = Keyword("if")
+    THEN = Keyword("then")
+    ELSE = Keyword("else")
+    END = Keyword("end")
+    VAL = Keyword("val")
+    FUN = Keyword("fun")
+
+    EQUAL = Literal("=").suppress()
+    SEMICOLON = Literal(";").suppress()
+    COMMENT = Literal("#").suppress() + restOfLine
+
     constant = INT | STRING | BOOL
     value = constant | ID
 
-    mulop = oneOf("* /")
+    boolop = oneOf("== != > < >= <=")
+    mulop = oneOf("* / %")
     plusop = oneOf("+ -")
 
     # fmt: off
     infix_expr = infixNotation(
         value,
         [
-            (mulop, 1, opAssoc.LEFT, lambda x: x),
+            (mulop,  2, opAssoc.LEFT, BinOp),
             (plusop, 2, opAssoc.LEFT, BinOp),
+            (boolop,  2, opAssoc.LEFT, BoolOp),
         ]
 
     )
     # fmt: on
 
     # Expressions
-    fun_call = (
-        ID("name") + expr("args")[...]
-    ).setParseAction(FunCall)
+    fun_call_expr = (ID("name") + expr("args")[...]).setParseAction(FunCall)
 
-    elif_snippet = "elif" + expr("elifcond") + "then" + expr("elifbody")
     if_expr = (
-        "if" + expr("ifcond") + "then" +
-            expr("ifbody") +
-        elif_snippet("elifs")[...] +
-        "else" + expr("elsebody")  +
-        "end"
+        IF + expr("ifcond") + THEN + ELSE + expr("elsebody") + END
     ).setParseAction(IfExpr)
 
-    expr <<= fun_call ^ value ^ infix_expr ^ if_expr
+    expr <<= if_expr | infix_expr | (fun_call_expr ^ value ^ infix_expr)
 
     expr_list = delimitedList(expr, ";")
 
     # Statements
-    val_stmt = ("val" + ID("name") + "=" + expr("expr") + ";").setParseAction(Val)
+    val_stmt = (VAL + ID("name") + EQUAL + expr("expr") + SEMICOLON).setParseAction(Val)
 
     fun_stmt = (
-        "fun" + ID("name") + ID("args")[...] + "=" + expr("body") + ";"
+        FUN + ID("name") + ID[...]("args") + EQUAL + expr("body") + SEMICOLON
     ).setParseAction(FuncDef)
-
 
     statement = (val_stmt ^ fun_stmt)("stmt").setParseAction(eval_statement)
 
-    module = statement[1, ...].ignore("#" + restOfLine)
+    module = statement[1, ...].ignore(COMMENT)
 
     BNF._cache = module
     return module
@@ -233,14 +299,8 @@ BNF().runTests(
     val bar = 20;
     val zar = foo;
     val a = 1 + 2;
-    val hello = "Hello";
-
-    fun foofunc a b = a + b;
-
-    val foores = foofunc 1 2;
-
-    val foo = if a then a + 1 elif b then b + 1 else c end;
-
-    val bar = if true then 1 else 0 end;
+    # val hello = "Hello";
+    # fun foofunc a b = a + b;
+    # fun odd x = x % 2 == 0;
     """
 )
