@@ -21,17 +21,20 @@ from pyparsing import (  # type: ignore
 from collections import namedtuple
 
 
-class Lambda:
-    def __init__(self, arg, body):
-        self.arg = arg
-        self.body = body
-
+class Term:
     def __repr__(self):
         args = ", ".join(f"{k}={repr(v)}" for k, v in self.__dict__.items())
         return f"{self.__class__.__name__}({args})"
 
+class Lambda(Term):
+    def __init__(self, arg, body):
+        self.arg = arg
+        self.body = body
 
-Application = namedtuple("Application", "e1 e2")
+class Application(Term):
+    def __init__(self, e1, e2):
+        self.e1 = e1
+        self.e2 = e2
 
 
 def to_lambda(t):
@@ -67,7 +70,7 @@ def BNF():
 
     abst = FN + ID("arg") + ARROW + term[1, ...]("body")
     appl = var("e1") + applseq("e2")
-    applseq <<= ID
+    applseq <<= term
 
     term <<= abst | appl | var
 
@@ -80,5 +83,6 @@ def BNF():
 BNF().runTests(
     """
     (fn a => a a) b
+    (fn a => a a) (fn b => b)
     """
 )
