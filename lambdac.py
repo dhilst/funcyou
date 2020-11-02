@@ -40,26 +40,6 @@ from pprint import pprint
 T = TypeVar("T")
 
 
-def pairs(it: Sequence[T]) -> Iterable[Tuple[T, T]]:
-    """
-    >>> list(pairs([1,2,3,4]))
-    [(1, 2), (2, 3), (3, 4)]
-
-    >>> list(pairs([1]))
-    []
-
-    >>> list(pairs([]))
-    []
-    """
-    it_ = iter(it)
-    a = next(it_, None)
-    if a is None:
-        return
-    for b in it_:
-        yield a, b
-        a = b
-
-
 class Term:
     def __repr__(self):
         args = ", ".join(f"{k}={repr(v)}" for k, v in self.__dict__.items())
