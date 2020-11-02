@@ -50,6 +50,10 @@ class ScopeEnv:
     # fmt: off
     _scope: Dict[str, Any] = {
         "+": Value(op.add, op.add),
+        "-": Value(op.sub, op.sub),
+        "%": Value(op.mod, op.mod),
+        "*": Value(op.mul, op.mul),
+        "/": Value(op.floordiv, op.floordiv),
     }
     # fmt: on
 
@@ -103,7 +107,7 @@ class Node(ABC):
         self.value: Optional[Value]
 
     def __repr__(self):
-        if self.value is not None:
+        if hasattr(self, "value") and self.value is not None:
             attrs = ", ".join(
                 f"{k}={repr(v)}" for k, v in self.__dict__.items() if k != "expr"
             )
@@ -196,11 +200,6 @@ class IfExpr(Expr):
         return Value(None, None)
 
 
-class Arguments(Node):
-    def __init__(self, tokens: ParseResults):
-        self.args = tokens.ungroup()
-
-
 class FunCall(Expr):
     def __init__(self, tokens: ParseResults):
         self.type = TypeUnknow
@@ -234,8 +233,8 @@ class Val(Statement):
 
 class FuncDef(Statement):
     def __init__(self, tokens: ParseResults):
-        self.name = tokens.name
-        self.args: Arguments = tokens.args
+        self.name = tokens.name.name
+        self.args = [t.name for t in tokens.args]
         self.body: Expr = tokens.body
 
     def eval(self):
@@ -291,13 +290,13 @@ def BNF():
     # fmt: on
 
     # Expressions
-    fun_call_expr = (ID("name") + expr("args")[...]).setParseAction(FunCall)
+    fun_call_expr = (ID("name") + value("args")).setParseAction(FunCall)
 
     if_expr = (
         IF + expr("ifcond") + THEN + ELSE + expr("elsebody") + END
     ).setParseAction(IfExpr)
 
-    expr <<= if_expr | infix_expr | (fun_call_expr ^ value ^ infix_expr)
+    expr <<= if_expr | infix_expr | fun_call_expr | constant | ID
 
     expr_list = delimitedList(expr, ";")
 
@@ -322,8 +321,9 @@ BNF().runTests(
     val bar = 20;
     val zar = foo;
     val a = 1 + 2;
-    # val hello = "Hello";
-    # fun foofunc a b = a + b;
+    val hello = "Hello";
+    fun foofunc a b = a + b;
+    val foofuncres = foofunc 1;
     # fun odd x = x % 2 == 0;
     """
 )
