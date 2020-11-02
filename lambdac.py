@@ -1,12 +1,26 @@
-from typing import Dict, Any, NamedTuple, Optional, Callable, TypedDict
+from typing import (
+    Dict,
+    Any,
+    NamedTuple,
+    Optional,
+    Callable,
+    TypedDict,
+    Generic,
+    TypeVar,
+    Iterable,
+    Sequence,
+    Tuple,
+)
 from pyparsing import (  # type: ignore
     Combine,
+    Empty,
     Forward,
     Group,
     Keyword,
-    ParseResults,
-    Literal,
     LineEnd,
+    Literal,
+    NoMatch,
+    ParseResults,
     Word,
     alphanums,
     alphas,
@@ -17,8 +31,33 @@ from pyparsing import (  # type: ignore
     oneOf,
     opAssoc,
     restOfLine,
+    ungroup,
 )
 from collections import namedtuple
+from functools import reduce
+from pprint import pprint
+
+T = TypeVar("T")
+
+
+def pairs(it: Sequence[T]) -> Iterable[Tuple[T, T]]:
+    """
+    >>> list(pairs([1,2,3,4]))
+    [(1, 2), (2, 3), (3, 4)]
+
+    >>> list(pairs([1]))
+    []
+
+    >>> list(pairs([]))
+    []
+    """
+    it_ = iter(it)
+    a = next(it_, None)
+    if a is None:
+        return
+    for b in it_:
+        yield a, b
+        a = b
 
 
 class Term:
@@ -26,10 +65,12 @@ class Term:
         args = ", ".join(f"{k}={repr(v)}" for k, v in self.__dict__.items())
         return f"{self.__class__.__name__}({args})"
 
+
 class Lambda(Term):
     def __init__(self, arg, body):
         self.arg = arg
         self.body = body
+
 
 class Application(Term):
     def __init__(self, e1, e2):
@@ -38,51 +79,57 @@ class Application(Term):
 
 
 def to_lambda(t):
-    return Lambda(t.arg, t.body.asList())
+    return Lambda(t.arg, t.body.asList()[0])
 
 
 def to_application(t):
-    return Application(t.e1.asList(), t.e2)
+    # Left associativity
+    return reduce(Application, t)
 
 
 def BNF():
-    """
-    𝑇𝑒𝑟𝑚 → 𝐴𝑏𝑠
-    𝑇𝑒𝑟𝑚 → 𝐴𝑝𝑝
-    𝐴𝑏𝑠 →𝜆 𝑖𝑑 . 𝑇𝑒𝑟𝑚
-    𝐴𝑝𝑝 → 𝑉𝑎𝑟 𝐴𝑝𝑝𝑆𝑒𝑞
-    𝐴𝑝𝑝𝑆𝑒𝑞 →𝐴 𝑝𝑝
-    𝐴𝑝𝑝𝑆𝑒𝑞 → 𝜖
-    𝑉𝑎𝑟 → 𝑖𝑑
-    𝑉𝑎𝑟 → ( 𝑇𝑒𝑟𝑚 )
-    """
-
     ID = Word(alphas, exact=1)
     FN = Literal("fn").suppress()
     ARROW = Literal("=>").suppress()
     LP = Literal("(").suppress()
     RP = Literal(")").suppress()
 
+    comment = Literal("#").suppress() + restOfLine
+
     term = Forward()
-    applseq = Forward()
+    appl_ = Forward()
+
+    # abst ::= "fn" ID "=>" term+
+    abst = FN + ID("arg") + ARROW + term[1, ...]("body")
 
     var = ID | LP + term + RP
 
-    abst = FN + ID("arg") + ARROW + term[1, ...]("body")
-    appl = var("e1") + applseq("e2")
-    applseq <<= term
+    appl_ <<= var + appl_[...]  # applseq("e2")
+    appl = appl_ | NoMatch()  # add no match to create a new rule
 
     term <<= abst | appl | var
 
+    term.ignore(comment)
     abst.setParseAction(to_lambda)
     appl.setParseAction(to_application)
+
+    term.validate()
 
     return term
 
 
 BNF().runTests(
     """
-    (fn a => a a) b
+    # Simple abstraction
+    fn a => a a b
+
+    # Chainned abstraction
+    fn a => fn b => a b
+
+    # Abstraction application
     (fn a => a a) (fn b => b)
+
+    # Try left associativity of appliction
+    a b c d e
     """
 )
