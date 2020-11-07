@@ -21,6 +21,7 @@ from pyparsing import (  # type: ignore
     LineEnd,
     Literal,
     NoMatch,
+    ParserElement,
     ParseResults,
     Word,
     alphanums,
@@ -43,6 +44,10 @@ T = TypeVar("T", bound="Term")
 V = TypeVar("V", bound="Variable")
 
 
+class AlphaConversionException(Exception):
+    pass
+
+
 class Term(ABC):
     """
     Base class for Variable, Abstraction and Application
@@ -55,6 +60,11 @@ class Term(ABC):
     @abstractmethod
     def bind(self, other: "Variable") -> "Term":
         "Should returns the new bound term"
+        pass
+
+    @abstractmethod
+    def has_freevar_named(self, name: str) -> bool:
+        "Should return true if free variable with name @name is found"
         pass
 
 
@@ -89,6 +99,9 @@ class FreeVariable(Variable):
     def bind_to(self, lambda_: "Lambda") -> "BoundVariable":
         return BoundVariable(self.name, lambda_)
 
+    def has_freevar_named(self, name: str) -> bool:
+        return self.name == name
+
     def __repr__(self):
         return f"FV({self.name})"
 
@@ -105,6 +118,12 @@ class BoundVariable(Variable):
     @property
     def bound(self):
         return self._bound
+
+    def rename(self, to: str):
+        self.name = to
+
+    def has_freevar_named(self, name: str) -> bool:
+        return False
 
     def __repr__(self):
         return f"BV({self.name})"
@@ -130,6 +149,39 @@ class Lambda(Term):
         self.body = self.body.bind(var)
         return self
 
+    def alpha_conversion(self, to: str):
+        """
+        Run an alpha conversion (λx.x) -> (λy.y)
+
+        Construct an expression
+        >>> x = FreeVariable("x")
+        >>> y = FreeVariable("y")
+        >>> l1 = Lambda(x, Application(x, y))
+
+        Check that it's what we expect
+        >>> repr(l1)
+        '(λx.BV(x) FV(y))'
+
+        Do alpha conversion and check it again
+        >>> l1.alpha_conversion("z")
+        >>> repr(l1)
+        '(λz.BV(z) FV(y))'
+
+        Trying to alhpa-convert raise an error if the free variable is already
+        taken
+        >>> l1.alpha_conversion("y")
+        Traceback (most recent call last):
+        lambdac.AlphaConversionException: FV(y) present in BV(z) FV(y), cant ɑ-convert
+        """
+        if self.has_freevar_named(to):
+            raise AlphaConversionException(
+                f"FV({to}) present in {self.body}, cant ɑ-convert"
+            )
+        self.arg.rename(to)
+
+    def has_freevar_named(self, name: str) -> bool:
+        return self.body.has_freevar_named(name)
+
     def __repr__(self):
         return f"(λ{self.arg.name}.{self.body})"
 
@@ -149,26 +201,30 @@ class Application(Term):
         self.e2 = self.e2.bind(var)
         return self
 
+    def has_freevar_named(self, name: str) -> bool:
+        return self.e1.has_freevar_named(name) or self.e2.has_freevar_named(name)
+
     def __repr__(self):
         return f"{self.e1} {self.e2}"
 
 
-def to_lambda(t):
-    return Lambda(t.arg, t.body.asList()[0])
-
-
-def to_application(t):
-    # Left associativity
-    return reduce(Application, t)
-
-
-def to_variable(t):
-    return FreeVariable(t[0])
-
-
-def BNF():
+def BNF() -> ParserElement:
+    """
+    Our grammar
+    """
     if hasattr(BNF, "cache"):
-        return BNF.cache
+        return BNF.cache  # type: ignore
+
+    def to_lambda(t):
+        return Lambda(t.arg, t.body.asList()[0])
+
+    def to_application(t):
+        # Left associativity
+        return reduce(Application, t)
+
+    def to_variable(t):
+        return FreeVariable(t[0])
+
     ID = Word(alphas, exact=1).setParseAction(to_variable)
     FN = Literal("fn").suppress()
     ARROW = Literal("=>").suppress()
@@ -196,7 +252,7 @@ def BNF():
 
     term.validate()
 
-    BNF.cache = term
+    BNF.cache = term  # type: ignore
 
     return term
 
