@@ -44,6 +44,25 @@ T = TypeVar("T", bound="Term")
 V = TypeVar("V", bound="Variable")
 
 
+def next_var(v: str):
+    """
+    Return the next letter
+
+    >>> next_var("a")
+    'b'
+
+    >>> next_var("z")
+    'a'
+    """
+    first = ord("a")
+    last = ord("z")
+    index = ord(v)
+    next_ = ord(v) + 1
+    if next_ > last:
+        next_ = first
+    return chr(next_)
+
+
 class AlphaConversionException(Exception):
     pass
 
@@ -67,6 +86,9 @@ class Term(ABC):
         "Should return true if free variable with name @name is found"
         pass
 
+    def to_str(self):
+        return repr(self)
+
 
 class Variable(Term, ABC):
     """
@@ -86,6 +108,11 @@ class Variable(Term, ABC):
             return other
         else:
             return self
+
+    def release(self, varname: str):
+        if self.name == varname:
+            return FreeVariable(self.name)
+        return self
 
 
 class FreeVariable(Variable):
@@ -167,6 +194,8 @@ class Lambda(Term):
         >>> repr(l1)
         '(λz.BV(z) FV(y))'
 
+        '(λz.BV(x)) FV(y) => FV(y)'
+
         Trying to alhpa-convert raise an error if the free variable is already
         taken
         >>> l1.alpha_conversion("y")
@@ -178,6 +207,61 @@ class Lambda(Term):
                 f"FV({to}) present in {self.body}, cant ɑ-convert"
             )
         self.arg.rename(to)
+
+    def call(self, arg: Variable):
+        """
+        Beta reduction
+        '(λz.BV(x)) FV(y) => FV(y)'
+
+        >>> x = FreeVariable("x")
+        >>> y = FreeVariable("y")
+        >>> z = FreeVariable("z")
+
+        # ID function
+        >>> l = Lambda(x, x)
+        >>> res = l.call(y)
+        >>> repr(res)
+        'FV(y)'
+
+        Replace on application
+        >>> l = Lambda(x, Application(x, z))
+        >>> res = l.call(y)
+        >>> repr(res)
+        'FV(y) FV(z)'
+
+        Contant function
+        >>> Lambda(x, y).call(z).to_str()
+        'FV(y)'
+
+        Alpha conversion done
+        (λx.x y) y => z y
+        >>> Lambda(x, Application(x,y)).call(y).to_str()
+        'FV(z) FV(y)'
+        """
+        if self.has_freevar_named(arg.name):
+            next_ = self.next_var(arg.name)
+            self.alpha_conversion(next_)
+        if isinstance(self.body, BoundVariable):
+            return arg
+        elif isinstance(self.body, FreeVariable):
+            return self.body
+        elif isinstance(self.body, Application):
+            if self.has_freevar_named(arg.name):
+                return self.body.release(self.arg.name)
+            if self.body.e1.name == self.arg.name:
+                self.body.e1 = arg
+            if self.body.e2.name == self.arg.name:
+                self.body.e2 = arg
+            return self.body
+
+    def next_var(self, var: str) -> str:
+        count = 0
+        while self.has_freevar_named(var):
+            var = next_var(var)
+            count += 1
+            if count > 26:
+                raise RuntimeError("no more variables available")
+        return var
 
     def has_freevar_named(self, name: str) -> bool:
         return self.body.has_freevar_named(name)
@@ -206,6 +290,9 @@ class Application(Term):
 
     def __repr__(self):
         return f"{self.e1} {self.e2}"
+
+    def release(self, varname: str):
+        return Application(self.e1.release(varname), self.e2.release(varname))
 
 
 def BNF() -> ParserElement:
