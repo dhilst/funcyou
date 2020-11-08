@@ -208,10 +208,80 @@ class Lambda(Term):
             )
         self.arg.rename(to)
 
+    def cbv(self, arg: Term) -> Term:
+        """
+        (λx.x) y                        => a = Application(e1=Lambda(arg=BV(x), body=BV(x)), e2=FV(y))
+            -> x{y/x}                   => a.eval() => a.e1.replace(a.e2)
+            -> y                        => FV(y)
+
+        (λx.x x) y                      => a = Appl(Lam(x, Appl(x, x)), y)
+            -> (x x){y/x}               => a.eval() => a.e1.replace(a.e2)
+            -> (y y)                    => Appl(y, y)
+
+        (λx.λy.y x) (λx.1)              => a = App(Lam(x, Lam(y, Appl(y, x))), Lam(x, 1)); a.eval()
+            -> (λy.y x){λx.1/x}         => a.e1.replace(a.e2)
+            -> (λy.y (λx.1))            => Lam(y, App(y, Lam(x, 1)))
+
+        (λx.λy.x y) y                   => a = Appl(Lam(x, Lam(y, Appl(x, y))), y); a.eval()
+            -> (λy.x y){x/y}            => a.e1.replace(a.e2) => throws CaptureException(y)
+            -> ((λx.x y){NX()/y}){x/y}  => a.e1.replace(NX() => z, ex.var => y).replace(a.e2)
+            -> (λx.x z){x/y}            => a.e1.replace(a.e2)
+            -> (λx.y z)                 => Lam(y, z)
+
+        """
+        arg = arg.eval()
+        return self.body.cbv(arg)
+
     def call(self, arg: Variable):
         """
         Beta reduction
-        '(λz.BV(x)) FV(y) => FV(y)'
+
+        '(λz.BV(x)) FV(y) => FV(y)'.repl
+
+
+
+        (λx.λz.y z)
+            -> (λa.λz.y a)
+
+        (λx.λz.y x) y
+            -> (λz.y x){x/y}        (variable FV(y) captured)
+            -> ((λz.y x){a/y}){x/y} (rename FV(y) -> FV(a)){
+            -> (λz.a x){x/y}
+            -> (λz.a y)
+
+        (λx.λz.y x) y
+            -> (λz.y x){x/y}        (variable FV(y) captured)
+            -> (λz.y x)({x/y}{y/NV(x,y,z)}) (rename outer FV(y) -> FV(a)
+            -> (λz.y x)({x/y}{y/a}) (rename outer FV(y) -> FV(a)
+            -> (λz.y x){x/a}
+            -> (λz.y a)
+
+
+        (λz.a y) -> λ.1 2
+        (λz.y a) -> λ.1 2
+
+        (λx.srqt(x) + 1) 4
+            -> (sqrt(x) + 1){4/x}
+            -> sqrt(4) + 1
+            -> 2 + 1
+            -> 1
+
+
+        (λx.x y) y
+        (λx.λy.y z) z
+            -> [x -> z](λy.y z)
+            -> (λy.y z) z
+            -> [y -> z]y z
+            -> [y -> a]y z
+            -> a z
+
+        (λx.x)
+            -> [x -> z](λx.x)
+            -> λz.z
+
+        (λx.λy.z y) z
+            -> [x -> z]λy.z y
+            -> λy.z y
 
         >>> x = FreeVariable("x")
         >>> y = FreeVariable("y")
