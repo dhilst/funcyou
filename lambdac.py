@@ -88,6 +88,7 @@ class Lamb(Term):
 
     def replace(self, old, new):
         if new == self.var:
+            # alpha conversion
             old_var = self.var
             self.var = _next_var(self.var)
             self.body = self.body.replace(old_var, self.var)
