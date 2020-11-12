@@ -180,21 +180,24 @@ if __name__ == "__main__":
     BNF().runTests(
         """
        # Simple abstraction
-       fn a => a a b
+       fn x => x y y
 
-       # Chainned abstraction
-       fn a => fn b => a b
+       # Chainned abstrxction
+       fn x => fn y => x y
 
        # Abstraction application
-       (fn a => a a) (fn b => b)
+       (fn x => x y) (fn x => x)
 
        # Try left associativity of appliction
-       a b c d e
+       u v w x y z
 
-       # Simple application
-       (fn a => a) b
+       # Simple xpplicxtion
+       (fn x => x) a
 
        # ɑ conversion needed
-       (fn x => x y) y
+       (fn x => x y) a
        """
     )
+
+    # Testing parsing and application
+    print(">>>", appl(BNF().parseString("fn x => fn y => x y", True)[0], "1"))
