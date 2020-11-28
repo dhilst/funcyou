@@ -28,6 +28,7 @@ from pyparsing import (  # type: ignore
     Word,
     alphanums,
     alphas,
+    nums,
     dblQuotedString,
     delimitedList,
     infixNotation,
@@ -85,9 +86,6 @@ class Term:
 class Var(Term):
     def __init__(self, name):
         self.name = name
-
-    def eval(self):
-        return self
 
     def __repr__(self):
         return self.name
@@ -151,7 +149,6 @@ def appl(lam: "Lamb", term: Term):
     >>> appl(Lamb(Var("x"), Var("x")), Lamb(Var("y"), Var("y")))
     (λy.y)
     """
-    _reset_bound_vars()
     res = lam.replace(lam.var, term)
     if isinstance(res, Lamb):
         return res.body
@@ -161,9 +158,22 @@ def appl(lam: "Lamb", term: Term):
 
 def eval_term(term: Term) -> Term:
     """
+    Abstration evaluate to it self
     >>> eval_term(Lamb(Var("x"), Var("x")))
     (λx.x)
+
+    Value evaluate to it self
     >>> eval_term(Appl(Lamb(Var("x"), Var("x")), Val("1")))
+    1
+
+    Application evalute by CBV
+    >>> eval_term(Appl(Lamb(Var("x"), Var("x")), Lamb(Var("y"), Var("y"))))
+    (λy.y)
+
+    >>> parse("(fn x => x) 1").eval()
+    1
+
+    >>> parse("(fn x => fn y => x) 1 2").eval()
     1
     """
     if isinstance(term, Appl):
@@ -172,6 +182,14 @@ def eval_term(term: Term) -> Term:
         if isinstance(e1, Lamb):
             return appl(e1, e2)
     return term
+
+class AST:
+    def __init__(self, parse_tree: ParseResults):
+        self.parse_results = parse_tree
+
+    def eval(self):
+        _reset_bound_vars()
+        return eval_term(self.parse_results[0])
 
 
 def BNF() -> ParserElement:
@@ -182,7 +200,7 @@ def BNF() -> ParserElement:
         return BNF.cache  # type: ignore
 
     def to_lambda(t):
-        return Lamb(t.arg, t.body.asList()[0])
+        return Lamb(Var(t.arg), t.body.asList()[0])
 
     def to_application(t):
         # Left associativity
@@ -191,7 +209,11 @@ def BNF() -> ParserElement:
     def to_variable(t) -> Var:
         return Var(t[0])
 
+    def to_val(t) -> Val:
+        return Val(t[0])
+
     ID = Word(alphas, exact=1)
+    VAL = Word(nums)
     FN = Literal("fn").suppress()
     ARROW = Literal("=>").suppress()
     LP = Literal("(").suppress()
@@ -205,7 +227,7 @@ def BNF() -> ParserElement:
     # abst ::= "fn" ID "=>" term+
     abst = FN + ID("arg") + ARROW + term[1, ...]("body")
 
-    var = ID | LP + term + RP
+    var = ID | VAL | LP + term + RP
 
     appl_ <<= var + appl_[...]  # applseq("e2")
     appl = appl_ | NoMatch()  # add no match to create a new rule
@@ -214,6 +236,7 @@ def BNF() -> ParserElement:
 
     term.ignore(comment)
     ID.setParseAction(to_variable)
+    VAL.setParseAction(to_val)
     abst.setParseAction(to_lambda)
     appl.setParseAction(to_application)
 
@@ -222,6 +245,11 @@ def BNF() -> ParserElement:
     BNF.cache = term  # type: ignore
 
     return term
+
+
+
+def parse(input: str) -> Term:
+    return AST(BNF().parseString(input, True))
 
 
 if __name__ == "__main__":
@@ -244,6 +272,9 @@ if __name__ == "__main__":
 
        # ɑ conversion needed
        (fn x => x y) a
+
+       # Value
+       1
        """
     )
 
