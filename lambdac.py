@@ -1,3 +1,4 @@
+import os
 import sys
 from abc import ABC, abstractmethod
 from typing import (
@@ -82,6 +83,25 @@ class Term:
     def replace(self, old, new) -> "Term":
         pass
 
+    @property
+    def is_norm(self) -> bool:
+        """
+        >>> Lamb(Var("x"), Var("x")).is_norm
+        True
+        >>> Var("x").is_norm
+        True
+        >>> Val("1").is_norm
+        True
+        >>> Appl(Lamb(Var("x"), Var("x")), Val("1")).is_norm
+        False
+        """
+        if isinstance(self, Appl):
+            if isinstance(self.e1, Lamb):
+                return False
+            else:
+                return self.e1.is_norm and self.e2.is_norm
+        return True
+
 
 class Var(Term):
     def __init__(self, name):
@@ -133,6 +153,8 @@ class Appl(Term):
         return self
 
     def __repr__(self):
+        if isinstance(self.e2, Appl):
+            return f"{self.e1} ({self.e2})"
         return f"{self.e1} {self.e2}"
 
 
@@ -169,12 +191,6 @@ def eval_term(term: Term) -> Term:
     Application evalute by CBV
     >>> eval_term(Appl(Lamb(Var("x"), Var("x")), Lamb(Var("y"), Var("y"))))
     (λy.y)
-
-    >>> parse("(fn x => x) 1").eval()
-    1
-
-    >>> parse("(fn x => fn y => x) 1 2").eval()
-    1
     """
     if isinstance(term, Appl):
         e1 = eval_term(term.e1)
@@ -183,13 +199,28 @@ def eval_term(term: Term) -> Term:
             return appl(e1, e2)
     return term
 
+
 class AST:
     def __init__(self, parse_tree: ParseResults):
         self.parse_results = parse_tree
 
     def eval(self):
+        """
+        I
+        >>> parse("(fn x => x) 1").eval()
+        1
+
+        K combinator
+        >>> parse("(fn x => fn y => x) 1 2").eval()
+        1
+
+        S combinator
+        >>> parse("(fn x => fn y => fn z => x z (y z)) (fn x => fn y => x) (fn x => x) 1").eval()
+        """
         _reset_bound_vars()
-        return eval_term(self.parse_results[0])
+        while not t.is_norm:
+            t = eval_term(t)
+        return t
 
 
 def BNF() -> ParserElement:
@@ -247,8 +278,7 @@ def BNF() -> ParserElement:
     return term
 
 
-
-def parse(input: str) -> Term:
+def parse(input: str) -> AST:
     return AST(BNF().parseString(input, True))
 
 
@@ -275,6 +305,9 @@ if __name__ == "__main__":
 
        # Value
        1
+
+       # Parenthesis
+       x z (y z)
        """
     )
 
