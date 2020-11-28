@@ -158,7 +158,7 @@ class Appl(Term):
         return f"{self.e1} {self.e2}"
 
 
-def appl(lam: "Lamb", term: Term):
+def appl(lam: "Lamb", term: Term, i = 0):
     """
     >>> appl(Lamb(Var("x"), Var("x")), Val("1"))
     1
@@ -173,12 +173,13 @@ def appl(lam: "Lamb", term: Term):
     """
     res = lam.replace(lam.var, term)
     if isinstance(res, Lamb):
+        print(f"{'  ' * i}appl({lam}, {term}) => {res.body}", file=sys.stderr)
         return res.body
 
     raise TypeError(f"{res} is not a lambda")
 
 
-def eval_term(term: Term) -> Term:
+def eval_term(term: Term, i = 0) -> Term:
     """
     Abstration evaluate to it self
     >>> eval_term(Lamb(Var("x"), Var("x")))
@@ -192,11 +193,13 @@ def eval_term(term: Term) -> Term:
     >>> eval_term(Appl(Lamb(Var("x"), Var("x")), Lamb(Var("y"), Var("y"))))
     (λy.y)
     """
+    print(f"{'  ' * i}eval({term})", file=sys.stderr)
     if isinstance(term, Appl):
-        e1 = eval_term(term.e1)
-        e2 = eval_term(term.e2)
+        e1 = eval_term(term.e1, i+1)
+        e2 = eval_term(term.e2, i+1)
         if isinstance(e1, Lamb):
-            return appl(e1, e2)
+            return appl(e1, e2, i+1)
+
     return term
 
 
@@ -216,10 +219,13 @@ class AST:
 
         S combinator
         >>> parse("(fn x => fn y => fn z => x z (y z)) (fn x => fn y => x) (fn x => x) 1").eval()
+        1
         """
         _reset_bound_vars()
+        t = eval_term(self.parse_results[0])
         while not t.is_norm:
             t = eval_term(t)
+        print("", file=sys.stderr)
         return t
 
 
