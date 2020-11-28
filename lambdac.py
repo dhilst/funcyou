@@ -12,6 +12,7 @@ from typing import (
     Iterable,
     Sequence,
     Tuple,
+    Union,
 )
 from pyparsing import (  # type: ignore
     Combine,
@@ -44,27 +45,27 @@ from pprint import pprint
 _bound_vars = set()
 
 
-def _next_var(v: str):
+def _next_var(v: "Var") -> "Var":
     """
     Return the next letter
 
-    >>> _next_var("u")
-    'v'
+    >>> _next_var(Var("u"))
+    v
 
-    >>> _next_var("z")
-    'u'
+    >>> _next_var(Var("z"))
+    u
     """
     global _bound_vars
     first = ord("u")
     last = ord("z")
-    index = ord(v)
+    index = ord(v.name)
     while True:
-        next_ = ord(v) + 1
+        next_ = ord(v.name) + 1
         if next_ > last:
             next_ = first
-        found = chr(next_)
+        found = Var(chr(next_))
         if found not in _bound_vars:
-            return chr(next_)
+            return Var(chr(next_))
 
 
 def _reset_bound_vars():
@@ -72,22 +73,46 @@ def _reset_bound_vars():
     _bound_vars = set()
 
 
-def _bind(var: str):
-    _bound_vars.add(var)
+def _bind(var: "Var"):
+    _bound_vars.add(var.name)
 
 
 class Term:
-    ...
+    def replace(self, old, new) -> "Term":
+        pass
+
+
+class Var(Term):
+    def __init__(self, name):
+        self.name = name
+
+    def eval(self):
+        return self
+
+    def __repr__(self):
+        return self.name
+
+    def replace(self, old, new) -> "Term":
+        if self.name == old.name:
+            return new
+        return self
+
+
+class Val(Var):
+    def __init__(self, val):
+        super().__init__(val)
 
 
 class Lamb(Term):
-    def __init__(self, var: str, body):
+    body: Term
+
+    def __init__(self, var: Var, body: Term):
         self.var = var
         self.body = body
-        _bind(var)
+        _bind(self.var)
 
-    def replace(self, old, new):
-        if new == self.var:
+    def replace(self, old: Var, new: Term) -> "Term":
+        if isinstance(new, Var) and new.name == self.var.name:
             # alpha conversion
             old_var = self.var
             self.var = _next_var(self.var)
@@ -113,23 +138,46 @@ class Appl(Term):
         return f"{self.e1} {self.e2}"
 
 
-def appl(lam: "Lamb", var: str):
+def appl(lam: "Lamb", term: Term):
     """
-    >>> appl(Lamb("x", "x"), "1")
-    '1'
-    >>> appl(Lamb("x", Lamb("y", Appl("x", "y"))), "1")
+    >>> appl(Lamb(Var("x"), Var("x")), Val("1"))
+    1
+    >>> appl(Lamb(Var("x"), Lamb( Var("y"), Appl(Var("x"), Var("y")) )), Val("1"))
     (λy.1 y)
-    >>> appl(Lamb("x", Lamb("y", Appl("x", "y"))), "y")
+
+    >>> appl(Lamb(Var("x"), Lamb( Var("y"), Appl(Var("x"), Var("y")) )), Var("y"))
     (λz.y z)
+
+    >>> appl(Lamb(Var("x"), Var("x")), Lamb(Var("y"), Var("y")))
+    (λy.y)
     """
     _reset_bound_vars()
-    return lam.replace(lam.var, var).body
+    res = lam.replace(lam.var, term)
+    if isinstance(res, Lamb):
+        return res.body
+
+    raise TypeError(f"{res} is not a lambda")
+
+
+def eval_term(term: Term) -> Term:
+    """
+    >>> eval_term(Lamb(Var("x"), Var("x")))
+    (λx.x)
+    >>> eval_term(Appl(Lamb(Var("x"), Var("x")), Val("1")))
+    1
+    """
+    if isinstance(term, Appl):
+        e1 = eval_term(term.e1)
+        e2 = eval_term(term.e2)
+        if isinstance(e1, Lamb):
+            return appl(e1, e2)
+    return term
 
 
 def BNF() -> ParserElement:
     """
-   Our grammar
-   """
+    Our grammar
+    """
     if hasattr(BNF, "cache"):
         return BNF.cache  # type: ignore
 
@@ -140,8 +188,8 @@ def BNF() -> ParserElement:
         # Left associativity
         return reduce(Appl, t)
 
-    def to_variable(t) -> str:
-        return t[0]
+    def to_variable(t) -> Var:
+        return Var(t[0])
 
     ID = Word(alphas, exact=1)
     FN = Literal("fn").suppress()
@@ -200,4 +248,4 @@ if __name__ == "__main__":
     )
 
     # Testing parsing and application
-    print(">>>", appl(BNF().parseString("fn x => fn y => x y", True)[0], "1"))
+    print(">>>", appl(BNF().parseString("fn x => fn y => x y", True)[0], Var("1")))

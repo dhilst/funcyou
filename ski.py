@@ -46,4 +46,4 @@ def S(x, y, z):
     return xz(yz)
 
 
-print(S(K, S, K)(3)(2))
+print(S(K, S, K))
