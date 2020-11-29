@@ -39,6 +39,7 @@ from pyparsing import (  # type: ignore
     restOfLine,
     ungroup,
 )
+import operator as op
 from collections import namedtuple
 from functools import reduce
 from pprint import pprint
@@ -79,13 +80,16 @@ def _bind(var: "Var"):
     _bound_vars.add(var.name)
 
 
-class Term:
+class Term(ABC):
+    @abstractmethod
     def replace(self, old, new) -> "Term":
         pass
 
     @property
     def is_norm(self) -> bool:
         """
+        Is in beta-normal form?
+
         >>> Lamb(Var("x"), Var("x")).is_norm
         True
         >>> Var("x").is_norm
@@ -100,7 +104,45 @@ class Term:
                 return False
             else:
                 return self.e1.is_norm and self.e2.is_norm
+        elif isinstance(self, BinOp):
+            return False
         return True
+
+
+class BinOp(Term):
+    """
+    >>> eval_term(BinOp("+", Val("1"), Val("1")))
+    2
+
+    >>> AST([Appl(Lamb(Var("x"), BinOp("+", Var("x"), Val("1"))), Val("2"))]).eval()
+    3
+    """
+
+    opmap = {
+            '+': op.add,
+            '*': op.mul,
+            '/': op.truediv,
+            '-': op.sub,
+    }
+
+    def __init__(self, op: str, a: Term, b: Term):
+        self.a = a
+        self.op = op
+        self.b = b
+        if op not in self.__class__.opmap:
+            raise TypeError(f"Unknown operator {op}")
+
+    @property
+    def opfun(self):
+        return self.__class__.opmap[self.op]
+
+    def replace(self, old, new):
+        self.a = self.a.replace(old, new)
+        self.b = self.b.replace(old, new)
+        return self
+
+    def __repr__(self):
+        return f"{self.a} {self.op} {self.b}"
 
 
 class Var(Term):
@@ -116,9 +158,15 @@ class Var(Term):
         return self
 
 
-class Val(Var):
+class Val(Term):
     def __init__(self, val):
-        super().__init__(val)
+        self.val = int(val)
+
+    def __repr__(self):
+        return str(self.val)
+
+    def replace(self, old, new) -> "Term":
+        return self
 
 
 class Lamb(Term):
@@ -199,6 +247,11 @@ def eval_term(term: Term, i = 0) -> Term:
         e2 = eval_term(term.e2, i+1)
         if isinstance(e1, Lamb):
             return appl(e1, e2, i+1)
+    elif isinstance(term, BinOp):
+        a = eval_term(term.a, i+1)
+        b = eval_term(term.b, i+1)
+        if isinstance(a, Val) and isinstance(b, Val):
+            return Val(term.opfun(a.val, b.val))
 
     return term
 
@@ -223,6 +276,8 @@ class AST:
         """
         _reset_bound_vars()
         t = eval_term(self.parse_results[0])
+        if t is None:
+            __import__('pdb').set_trace()
         while not t.is_norm:
             t = eval_term(t)
         print("", file=sys.stderr)
